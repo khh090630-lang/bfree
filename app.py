@@ -109,105 +109,71 @@ else:
 if start_coords and end_coords:
 
     # ⚠️ 중요: 그래프 복사본을 생성하여 매번 깨끗한 상태에서 가중치 부여
-
     G = graph.copy()
 
-    
-
     # 장애물 감지 범위 및 페널티 설정
-
     DETECTION_RADIUS = 0.0001  # 약 10m로 약간 확장
-
     PENALTY = 50              # 장애물 통과 시 거리를 50배로 계산 (강력 우회)
 
-
-
     # 모든 간선(Edge)에 대해 가중치 계산
-
     for u, v, k, data in G.edges(keys=True, data=True):
-
         # 기본 가중치는 실제 거리(length)
-
         data['my_weight'] = data['length']
-
         
-
         # 도로의 모양(geometry) 추출
-
         if 'geometry' in data:
-
             edge_geom = data['geometry']
-
         else:
-
             edge_geom = LineString([(G.nodes[u]['x'], G.nodes[u]['y']), (G.nodes[v]['x'], G.nodes[v]['y'])])
-
         
-
         # 장애물 데이터와 대조
-
         if not df.empty:
-
             for _, row in df.iterrows():
-
                 obs_point = Point(row['경도'], row['위도'])
-
                 if edge_geom.distance(obs_point) < DETECTION_RADIUS:
-
                     data['my_weight'] = data['length'] * PENALTY
-
                     break
 
-
-
     # 최단 경로 노드 찾기
-
     orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
-
     dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
 
-
-
     try:
-
         # ⚠️ 중요: weight 파라미터에 우리가 만든 'my_weight'를 지정해야 함
-
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
-
         
-
-        # 확대 로직
-
+        # 확대 로직용 좌표 리스트 (출발/목적지 실제 좌표 포함)
         route_nodes = [G.nodes[node] for node in route]
-
-        lats, lons = [n['y'] for n in route_nodes], [n['x'] for n in route_nodes]
-
+        lats = [n['y'] for n in route_nodes] + [start_coords[0], end_coords[0]]
+        lons = [n['x'] for n in route_nodes] + [start_coords[1], end_coords[1]]
         bbox = (max(lats)+0.001, min(lats)-0.001, max(lons)+0.001, min(lons)-0.001)
 
-
-
-        fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', node_size=0, bgcolor='white', show=False, close=False)
-
+        # 기본 그래프 경로 그리기
+        fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=5, node_size=0, bgcolor='white', show=False, close=False)
         ax.set_ylim(bbox[1], bbox[0]); ax.set_xlim(bbox[3], bbox[2])
 
+        # --- [수정된 선 연결 로직] 출발/목적지 실제 좌표와 경로 끝점을 선으로 잇기 ---
+        # 1. 출발지 실제 좌표 -> 첫 번째 노드 좌표 연결
+        start_node_coords = (G.nodes[orig_node]['x'], G.nodes[orig_node]['y'])
+        ax.plot([start_coords[1], start_node_coords[0]], [start_coords[0], start_node_coords[1]], 
+                color='#3b82f6', linewidth=5, zorder=4)
 
+        # 2. 목적지 실제 좌표 -> 마지막 노드 좌표 연결
+        end_node_coords = (G.nodes[dest_node]['x'], G.nodes[dest_node]['y'])
+        ax.plot([end_coords[1], end_node_coords[0]], [end_coords[0], end_node_coords[1]], 
+                color='#3b82f6', linewidth=5, zorder=4)
+        # --------------------------------------------------------------------------
 
         if not df.empty:
-
             ax.scatter(df['경도'], df['위도'], c='#ef4444', s=60, label='Obstacle', zorder=5, edgecolors='white')
-
-        ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', label='Start', zorder=6)
-
-        ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', label='Goal', zorder=6)
-
         
-
+        # 마커 표시 (zorder를 높여 선 위에 오도록 설정)
+        ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', label='Start', zorder=6, edgecolors='white')
+        ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', label='Goal', zorder=6, edgecolors='white')
+        
         st.pyplot(fig)
-
         st.success("장애물을 우회하는 최적 경로를 찾았습니다!")
-
-    except:
-
-        st.error("경로를 찾을 수 없습니다.")
+    except Exception as e:
+        st.error(f"경로를 찾을 수 없습니다: {e}")
 
 
