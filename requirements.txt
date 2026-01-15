@@ -1,9 +1,9 @@
-osmnx
+streamlit
 pandas
 networkx
+osmnx
 matplotlib
 shapely
-streamlit
-scipy
-scikit-learn
 geopy
+folium
+streamlit-folium
