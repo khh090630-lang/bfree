@@ -4,3 +4,5 @@ networkx
 matplotlib
 shapely
 streamlit
+scipy
+scikit-learn
