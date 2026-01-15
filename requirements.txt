@@ -6,3 +6,4 @@ shapely
 streamlit
 scipy
 scikit-learn
+geopy
