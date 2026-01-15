@@ -48,7 +48,7 @@ if input_method == "장소 이름 검색":
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
-                st.rerun() # 검색 즉시 지도 반영
+                st.rerun() 
         except: st.sidebar.error("검색 중 오류 발생")
 else:
     s_lat = st.sidebar.number_input("출발 위도", value=st.session_state.start_coords[0], format="%.6f")
@@ -60,15 +60,13 @@ else:
         st.session_state.end_coords = (e_lat, e_lon)
         st.rerun()
 
-# --- [수정] 지도 클릭 섹션 (안정성 강화) ---
+# --- 지도 클릭 섹션 ---
 st.markdown("### 🖱️ 지도를 클릭하여 위치를 미세 조정하세요")
 
-# 지도 생성 (고유 객체로 생성)
 m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
 folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
 folium.Marker(st.session_state.end_coords, tooltip="목적지", icon=folium.Icon(color='blue')).add_to(m)
 
-# st_folium 실행 (key와 returned_objects 명시)
 map_data = st_folium(
     m, 
     key="main_map",
@@ -77,7 +75,6 @@ map_data = st_folium(
     returned_objects=["last_clicked"] 
 )
 
-# 클릭 이벤트 처리
 if map_data and map_data.get('last_clicked'):
     clicked_lat = map_data['last_clicked']['lat']
     clicked_lng = map_data['last_clicked']['lng']
@@ -98,7 +95,6 @@ end_coords = st.session_state.end_coords
 if start_coords and end_coords:
     G = graph.copy()
     
-    # 1. 노드 찾기 및 우회 로직 (질문자님 기존 로직 그대로)
     orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
     dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
 
@@ -117,6 +113,10 @@ if start_coords and end_coords:
 
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
+        
+        # --- [추가 수정] 경로 거리 계산 ---
+        # 페널티가 적용된 weight가 아닌 실제 도로의 길이(length)를 합산합니다.
+        total_meters = int(sum(ox.utils_graph.get_route_edge_attributes(G, route, "length")))
         
         # 시각화 (matplotlib)
         fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=5, 
@@ -144,7 +144,10 @@ if start_coords and end_coords:
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
         
         st.pyplot(fig)
-        st.success("✅ 최적 경로를 지도에 표시했습니다.")
+        
+        # --- [추가 수정] 거리 및 안내 메시지 출력 ---
+        st.metric(label="🏁 총 예상 보행 거리", value=f"{total_meters} m")
+        st.success(f"최적 경로를 찾았습니다. (예상 소요 시간: 도보 약 {round(total_meters/67)}분)")
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
