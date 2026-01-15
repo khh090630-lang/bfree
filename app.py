@@ -153,10 +153,6 @@ if start_coords and end_coords:
         ax.set_ylim(bbox[1], bbox[0]); ax.set_xlim(bbox[3], bbox[2])
 
         # --- [수정된 선 연결 로직] 출발/목적지 실제 좌표와 경로 끝점을 선으로 잇기 ---
-        # 1. 출발지 실제 좌표 -> 첫 번째 노드 좌표 연결
-        start_node_coords = (G.nodes[orig_node]['x'], G.nodes[orig_node]['y'])
-        ax.plot([start_coords[1], start_node_coords[0]], [start_coords[0], start_node_coords[1]], 
-                color='#3b82f6', linewidth=5, zorder=4)
 
         # 2. 목적지 실제 좌표 -> 마지막 노드 좌표 연결
         end_node_coords = (G.nodes[dest_node]['x'], G.nodes[dest_node]['y'])
@@ -175,5 +171,6 @@ if start_coords and end_coords:
         st.success("장애물을 우회하는 최적 경로를 찾았습니다!")
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
 
 
