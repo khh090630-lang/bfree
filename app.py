@@ -34,7 +34,7 @@ if 'start_coords' not in st.session_state:
 if 'end_coords' not in st.session_state:
     st.session_state.end_coords = (35.302278, 128.593880)
 if 'run_nav' not in st.session_state:
-    st.session_state.run_nav = False  # 실행 버튼 클릭 여부 저장
+    st.session_state.run_nav = False
 
 # [2] 사이드바 설정
 st.sidebar.header("📍 경로 설정")
@@ -50,7 +50,7 @@ if input_method == "장소 이름 검색":
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
-                st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+                st.session_state.run_nav = False
                 st.rerun() 
         except: st.sidebar.error("검색 중 오류 발생")
 else:
@@ -61,12 +61,11 @@ else:
     if st.sidebar.button("🚀 좌표 반영"):
         st.session_state.start_coords = (s_lat, s_lon)
         st.session_state.end_coords = (e_lat, e_lon)
-        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+        st.session_state.run_nav = False
         st.rerun()
 
 # --- 지도 클릭 섹션 ---
 st.markdown("### 🖱️ 지도를 더블클릭하여 출발지와 목적지를 설정하세요")
-
 m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
 folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
 folium.Marker(st.session_state.end_coords, tooltip="목적지", icon=folium.Icon(color='blue')).add_to(m)
@@ -80,41 +79,41 @@ if map_data and map_data.get('last_clicked'):
     c1, c2 = st.columns(2)
     if c1.button("📌 여기를 [출발지]로"):
         st.session_state.start_coords = (clicked_lat, clicked_lng)
-        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+        st.session_state.run_nav = False
         st.rerun()
     if c2.button("📌 여기를 [목적지]로"):
         st.session_state.end_coords = (clicked_lat, clicked_lng)
-        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+        st.session_state.run_nav = False
         st.rerun()
 
 start_coords = st.session_state.start_coords
 end_coords = st.session_state.end_coords
 
-# --- 실행 버튼 추가 ---
 st.markdown("---")
 if st.button("🏁 AI 우회 경로 탐색 시작", use_container_width=True, type="primary"):
     st.session_state.run_nav = True
 
-# [3] 경로 탐색 및 시각화 (버튼을 눌렀을 때만 실행)
+# [3] 경로 탐색 및 시각화
 if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
-    # --- 핵심 수정 부분: 도로(Edge) 기반 지능형 노드 선택 ---
     try:
-        # 1. 출발지와 목적지에서 가장 가까운 도로(Edge)를 찾습니다.
+        # [수정] nearest_edges 사용 및 노드 선택 함수 변경
         start_edge = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
         end_edge = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
 
-        # 2. 도로의 양 끝점 중 진행 방향에 맞는 노드를 선택합니다 (유턴 방지 및 백트래킹 최소화)
-        # 출발지: 목적지 좌표와 더 가까운 쪽의 노드를 도로 진입점으로 선택
-        orig_node = start_edge[0] if ox.distance.great_circle_vec(G.nodes[start_edge[0]]['y'], G.nodes[start_edge[0]]['x'], end_coords[0], end_coords[1]) < \
-                    ox.distance.great_circle_vec(G.nodes[start_edge[1]]['y'], G.nodes[start_edge[1]]['x'], end_coords[0], end_coords[1]) else start_edge[1]
+        # [수정] great_circle_vec 대신 거리 비교 로직 최적화 (버전 호환성 고려)
+        def get_dist(n_id, target_coords):
+            node_data = G.nodes[n_id]
+            # ox.distance.great_circle(lat1, lon1, lat2, lon2) 사용
+            return ox.distance.great_circle(node_data['y'], node_data['x'], target_coords[0], target_coords[1])
 
-        # 목적지: 출발지 좌표와 더 가까운 쪽의 노드를 도로 진출점으로 선택
-        dest_node = end_edge[0] if ox.distance.great_circle_vec(G.nodes[end_edge[0]]['y'], G.nodes[end_edge[0]]['x'], start_coords[0], start_coords[1]) < \
-                    ox.distance.great_circle_vec(G.nodes[end_edge[1]]['y'], G.nodes[end_edge[1]]['x'], start_coords[0], start_coords[1]) else end_edge[1]
+        # 출발지 노드 결정 (목적지에 더 가까운 노드 선택)
+        orig_node = start_edge[0] if get_dist(start_edge[0], end_coords) < get_dist(start_edge[1], end_coords) else start_edge[1]
+        # 목적지 노드 결정 (출발지에 더 가까운 노드 선택)
+        dest_node = end_edge[0] if get_dist(end_edge[0], start_coords) < get_dist(end_edge[1], start_coords) else end_edge[1]
 
-        # 장애물 우회 로직 (기존 로직 유지)
+        # 장애물 우회 가중치
         DETECTION_RADIUS = 0.0001  
         PENALTY = 50              
         for u, v, k, data in G.edges(keys=True, data=True):
@@ -130,7 +129,7 @@ if st.session_state.run_nav and start_coords and end_coords:
 
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # --- 총 이동 거리 계산 ---
+        # 거리 계산
         total_meters = 0
         for u, v in zip(route[:-1], route[1:]):
             edge_data = G.get_edge_data(u, v)
@@ -138,42 +137,32 @@ if st.session_state.run_nav and start_coords and end_coords:
                 min_len = min(d.get('length', 0) for d in edge_data.values())
                 total_meters += min_len
         
-        # 실제 좌표에서 선택된 노드까지의 직선거리 추가 (보행 정확도 향상)
-        dist_to_start = ox.distance.great_circle_vec(start_coords[0], start_coords[1], G.nodes[orig_node]['y'], G.nodes[orig_node]['x'])
-        dist_to_end = ox.distance.great_circle_vec(end_coords[0], end_coords[1], G.nodes[dest_node]['y'], G.nodes[dest_node]['x'])
-        total_meters = int(total_meters + dist_to_start + dist_to_end)
+        # 진입/진출 직선거리 합산
+        total_meters = int(total_meters + get_dist(orig_node, start_coords) + get_dist(dest_node, end_coords))
 
-        # --- 시각화 최적화 ---
+        # 시각화
         fig, ax = plt.subplots(figsize=(10, 10))
         ox.plot_graph(G, ax=ax, node_size=0, edge_color='#94a3b8', edge_linewidth=1.2, bgcolor='white', show=False, close=False)
         ox.plot_graph_route(G, route, ax=ax, route_color='#1d4ed8', route_linewidth=6, node_size=0, show=False, close=False)
 
-        # 실제 위치에서 교차로까지 연결선
-        ax.plot([start_coords[1], G.nodes[orig_node]['x']], [start_coords[0], G.nodes[orig_node]['y']], 
-                color='#1d4ed8', linewidth=6, alpha=0.7, zorder=4)
-        ax.plot([end_coords[1], G.nodes[dest_node]['x']], [end_coords[0], G.nodes[dest_node]['y']], 
-                color='#1d4ed8', linewidth=6, alpha=0.7, zorder=4)
+        # 보조선
+        ax.plot([start_coords[1], G.nodes[orig_node]['x']], [start_coords[0], G.nodes[orig_node]['y']], color='#1d4ed8', linewidth=6, alpha=0.7)
+        ax.plot([end_coords[1], G.nodes[dest_node]['x']], [end_coords[0], G.nodes[dest_node]['y']], color='#1d4ed8', linewidth=6, alpha=0.7)
 
-        # 장애물 표시
         if not df.empty:
-            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white', linewidth=1)
+            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white')
 
-        # 출발/도착 마커
         ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=11, edgecolors='white')
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=11, edgecolors='white')
         
-        # 줌 설정
         lats = [G.nodes[node]['y'] for node in route] + [start_coords[0], end_coords[0]]
         lons = [G.nodes[node]['x'] for node in route] + [start_coords[1], end_coords[1]]
         pad = 0.0003
         ax.set_ylim(min(lats)-pad, max(lats)+pad)
         ax.set_xlim(min(lons)-pad, max(lons)+pad)
-
         ax.axis('off')
-        plt.tight_layout(pad=0)
         st.pyplot(fig)
         
-        # --- 결과 표시 ---
         st.metric(label="🏁 예상 총 보행 거리", value=f"{total_meters} m")
         st.success(f"최적 경로를 찾았습니다. (도보 약 {max(1, round(total_meters/67))}분 소요)")
         
