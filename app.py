@@ -130,17 +130,25 @@ if st.session_state.run_nav and start_coords and end_coords:
                 total_meters += min_len
         total_meters = int(total_meters)
 
-        # 시각화 최적화 (배경 지도를 포함하여 꽉 차게 그림)
+        # --- 시각화 최적화 (배경 도로 진하게 수정) ---
         fig, ax = plt.subplots(figsize=(10, 10))
         
-        # 배경 도로망 그리기
-        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=1.0, 
-                      bgcolor='white', show=False, close=False)
+        # 배경 도로망 그리기 (색상을 더 어둡게, 선을 더 굵게 변경)
+        ox.plot_graph(G, ax=ax, 
+                      node_size=0, 
+                      edge_color='#94a3b8', # 더 진한 회색 (기존 #e2e8f0에서 변경)
+                      edge_linewidth=1.2,   # 선 굵기 (기존 0.8에서 변경)
+                      bgcolor='white', 
+                      show=False, 
+                      close=False)
         
-        # 경로 그리기
-        ox.plot_graph_route(G, route, ax=ax, route_color='#3b82f6', route_linewidth=5, 
-                            node_size=0, show=False, close=False)
-
+        # 경로 그리기 (경로가 배경에 묻히지 않도록 선명한 파란색 유지)
+        ox.plot_graph_route(G, route, ax=ax, 
+                            route_color='#1d4ed8', # 더 깊은 파란색
+                            route_linewidth=6, 
+                            node_size=0, 
+                            show=False, 
+                            close=False)
         # 실제 위치에서 교차로까지 연결선
         start_node_pt = (G.nodes[route[0]]['x'], G.nodes[route[0]]['y'])
         ax.plot([start_coords[1], start_node_pt[0]], [start_coords[0], start_node_pt[1]], 
@@ -172,5 +180,6 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
 
 
