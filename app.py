@@ -116,9 +116,9 @@ if start_coords and end_coords:
 
     # 장애물 감지 범위 및 페널티 설정
 
-    DETECTION_RADIUS = 0.0003  # 약 30m로 약간 확장
+    DETECTION_RADIUS = 0.0001  # 약 10m로 약간 확장
 
-    PENALTY = 100              # 장애물 통과 시 거리를 100배로 계산 (강력 우회)
+    PENALTY = 50              # 장애물 통과 시 거리를 50배로 계산 (강력 우회)
 
 
 
@@ -209,4 +209,5 @@ if start_coords and end_coords:
     except:
 
         st.error("경로를 찾을 수 없습니다.")
+
 
