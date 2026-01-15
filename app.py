@@ -26,15 +26,15 @@ def get_graph_data():
 
 df = get_obstacle_data(sheet_url)
 graph = get_graph_data()
-geolocator = Nominatim(user_agent="my_bfree_nav_v5")
+geolocator = Nominatim(user_agent="my_bfree_nav_v6")
 
-# --- 세션 상태 초기화 (검색과 클릭 좌표 연동용) ---
+# --- 세션 상태 초기화 ---
 if 'start_coords' not in st.session_state:
     st.session_state.start_coords = (35.299396, 128.595954)
 if 'end_coords' not in st.session_state:
     st.session_state.end_coords = (35.302278, 128.593880)
 
-# [2] 사이드바 설정 (기존 검색창 유지)
+# [2] 사이드바 설정
 st.sidebar.header("📍 경로 설정")
 input_method = st.sidebar.radio("방식 선택", ["장소 이름 검색", "위도/경도 직접 입력"])
 
@@ -48,7 +48,7 @@ if input_method == "장소 이름 검색":
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
-                st.sidebar.success("검색 위치가 반영되었습니다.")
+                st.rerun() # 검색 즉시 지도 반영
         except: st.sidebar.error("검색 중 오류 발생")
 else:
     s_lat = st.sidebar.number_input("출발 위도", value=st.session_state.start_coords[0], format="%.6f")
@@ -58,45 +58,50 @@ else:
     if st.sidebar.button("🚀 좌표 반영"):
         st.session_state.start_coords = (s_lat, s_lon)
         st.session_state.end_coords = (e_lat, e_lon)
+        st.rerun()
 
-# --- [추가] 지도 클릭 미세 조정 섹션 ---
-st.markdown("### 🖱️ 지도를 클릭하여 위치를 미세 조정할 수 있습니다.")
-m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=16)
-folium.Marker(st.session_state.start_coords, popup="출발지", icon=folium.Icon(color='green')).add_to(m)
-folium.Marker(st.session_state.end_coords, popup="목적지", icon=folium.Icon(color='blue')).add_to(m)
+# --- [수정] 지도 클릭 섹션 (안정성 강화) ---
+st.markdown("### 🖱️ 지도를 클릭하여 위치를 미세 조정하세요")
 
-# 지도 표시 및 클릭 이벤트 수집
-map_data = st_folium(m, width=900, height=400)
+# 지도 생성 (고유 객체로 생성)
+m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
+folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
+folium.Marker(st.session_state.end_coords, tooltip="목적지", icon=folium.Icon(color='blue')).add_to(m)
 
-if map_data['last_clicked']:
+# st_folium 실행 (key와 returned_objects 명시)
+map_data = st_folium(
+    m, 
+    key="main_map",
+    width=900, 
+    height=450,
+    returned_objects=["last_clicked"] 
+)
+
+# 클릭 이벤트 처리
+if map_data and map_data.get('last_clicked'):
     clicked_lat = map_data['last_clicked']['lat']
     clicked_lng = map_data['last_clicked']['lng']
     
+    st.info(f"선택된 좌표: {clicked_lat:.6f}, {clicked_lng:.6f}")
     c1, c2 = st.columns(2)
-    if c1.button("📌 클릭한 지점을 [출발지]로 설정"):
+    if c1.button("📌 여기를 [출발지]로"):
         st.session_state.start_coords = (clicked_lat, clicked_lng)
         st.rerun()
-    if c2.button("📌 클릭한 지점을 [목적지]로 설정"):
+    if c2.button("📌 여기를 [목적지]로"):
         st.session_state.end_coords = (clicked_lat, clicked_lng)
         st.rerun()
 
-# 최종 탐색용 좌표 변수 할당
 start_coords = st.session_state.start_coords
 end_coords = st.session_state.end_coords
 
-# [3] 경로 탐색 및 시각화 (스냅 오류 방지 버전)
+# [3] 경로 탐색 및 시각화
 if start_coords and end_coords:
     G = graph.copy()
-
-    # 1. '가까운 점'이 아니라 '가까운 도로(Edge)'를 찾습니다.
-    nearest_edge_start = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
-    nearest_edge_end = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
-
-    # 2. 도로 위의 가장 가까운 노드를 시작점/끝점으로 잡습니다.
+    
+    # 1. 노드 찾기 및 우회 로직 (질문자님 기존 로직 그대로)
     orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
     dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
 
-    # --- 우회 로직 ---
     DETECTION_RADIUS = 0.0001  
     PENALTY = 50              
     for u, v, k, data in G.edges(keys=True, data=True):
@@ -109,16 +114,15 @@ if start_coords and end_coords:
                 if edge_geom.distance(obs_point) < DETECTION_RADIUS:
                     data['my_weight'] = data['length'] * PENALTY
                     break
-    # ----------------------------------
 
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 시각화 준비
+        # 시각화 (matplotlib)
         fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=5, 
                                     node_size=0, bgcolor='white', show=False, close=False)
 
-        # 3. [핵심] 이상한 줄 방지: 실제 위치에서 경로의 '진짜 시작점'까지만 짧게 연결
+        # 실제 위치 연결선
         start_node_pt = (G.nodes[route[0]]['x'], G.nodes[route[0]]['y'])
         ax.plot([start_coords[1], start_node_pt[0]], [start_coords[0], start_node_pt[1]], 
                 color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
@@ -127,7 +131,7 @@ if start_coords and end_coords:
         ax.plot([end_coords[1], end_node_pt[0]], [end_coords[0], end_node_pt[1]], 
                 color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
 
-        # 줌 및 마커 설정
+        # 줌 설정
         route_nodes = [G.nodes[node] for node in route]
         lats = [n['y'] for n in route_nodes] + [start_coords[0], end_coords[0]]
         lons = [n['x'] for n in route_nodes] + [start_coords[1], end_coords[1]]
@@ -140,7 +144,7 @@ if start_coords and end_coords:
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
         
         st.pyplot(fig)
-        st.success("보행 경로를 따라 목적지까지 연결되었습니다.")
+        st.success("✅ 최적 경로를 지도에 표시했습니다.")
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
