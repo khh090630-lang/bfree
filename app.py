@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 import folium
 
 st.set_page_config(page_title="감계 배리어프리 내비", layout="wide")
-st.title("🗺️ 감계지구 스마트 우회 내비게이션")
+st.title("🗺️ 감계지구 배리어프리 내비게이션")
 
 # [1] 데이터 로드
 sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9_vnph9VqvmqqmA-_njbzjKR9dKTIOhFESErGsSSGaiQ9617tOmurA4Y8C9c-wu1t2LKQXtSPtEVk/pub?output=csv"
@@ -65,7 +65,7 @@ else:
         st.rerun()
 
 # --- 지도 클릭 섹션 ---
-st.markdown("### 🖱️ 지도를 클릭하여 위치를 미세 조정하세요")
+st.markdown("### 🖱️ 지도를 더블클릭하여 출발지와 목적지를 설정하세요")
 
 m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
 folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
@@ -188,3 +188,4 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
