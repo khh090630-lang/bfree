@@ -22,6 +22,7 @@ def get_obstacle_data(url):
 @st.cache_resource
 def get_graph_data():
     center_point = (35.300, 128.595)
+    # dist=2000으로 범위를 충분히 잡아 주변 도로가 잘 보이게 합니다.
     return ox.graph_from_point(center_point, dist=2000, network_type='walk')
 
 df = get_obstacle_data(sheet_url)
@@ -96,7 +97,7 @@ if st.button("🚀 AI 우회 경로 찾기", use_container_width=True, type="pri
 if st.session_state.run_nav:
     G = graph.copy()
     
-    # 교차로 탐색 보정 (유턴 방지)
+    # 교차로 탐색 보정 (가까운 노드 찾기 함수)
     def get_truest_node(graph, coords):
         edge = ox.distance.nearest_edges(graph, coords[1], coords[0])
         u, v, _ = edge
@@ -107,7 +108,7 @@ if st.session_state.run_nav:
     orig_node = get_truest_node(G, st.session_state.start_coords)
     dest_node = get_truest_node(G, st.session_state.end_coords)
 
-    # 장애물 가중치 적용
+    # 장애물 가중치 적용 로직
     DETECTION_RADIUS = 0.0001
     PENALTY = 50
     for u, v, k, data in G.edges(keys=True, data=True):
@@ -123,38 +124,54 @@ if st.session_state.run_nav:
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # --- [에러 해결 부분] 직접 루프를 돌아 거리 합산 ---
+        # 거리 합산 계산
         total_meters = 0
         for u, v in zip(route[:-1], route[1:]):
             edge_data = G.get_edge_data(u, v)
             if edge_data:
-                # MultiGraph 대응: 가장 짧은 length 선택
                 min_len = min(d.get('length', 0) for d in edge_data.values())
                 total_meters += min_len
         total_meters = int(total_meters)
-        # ----------------------------------------------
 
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=6, node_size=0, bgcolor='white', show=False, close=False, ax=ax)
+        # --- [수정 핵심] 시각화: 배경 도로망 복구 및 줌 최적화 ---
+        fig, ax = plt.subplots(figsize=(12, 10))
+
+        # 1. 배경 도로망 먼저 그리기 (연한 회색)
+        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=0.8, 
+                      bgcolor='white', show=False, close=False)
+
+        # 2. 탐색된 경로 덮어 그리기 (굵은 파란색)
+        ox.plot_graph_route(G, route, ax=ax, route_color='#3b82f6', route_linewidth=6, 
+                            node_size=0, show=False, close=False)
         
-        # 실제 좌표 연결선
-        ax.plot([st.session_state.start_coords[1], G.nodes[route[0]]['x']], [st.session_state.start_coords[0], G.nodes[route[0]]['y']], color='#3b82f6', linewidth=6, alpha=0.7)
-        ax.plot([st.session_state.end_coords[1], G.nodes[route[-1]]['x']], [st.session_state.end_coords[0], G.nodes[route[-1]]['y']], color='#3b82f6', linewidth=6, alpha=0.7)
+        # 3. 실제 좌표와 도로망 노드 연결선 그리기
+        ax.plot([st.session_state.start_coords[1], G.nodes[route[0]]['x']], 
+                [st.session_state.start_coords[0], G.nodes[route[0]]['y']], 
+                color='#3b82f6', linewidth=6, alpha=0.7, zorder=4)
+        ax.plot([st.session_state.end_coords[1], G.nodes[route[-1]]['x']], 
+                [st.session_state.end_coords[0], G.nodes[route[-1]]['y']], 
+                color='#3b82f6', linewidth=6, alpha=0.7, zorder=4)
 
-        # 줌 최적화
+        # 4. 줌 설정 (경로가 꽉 차게 보이도록 Padding 조정)
         lats = [G.nodes[n]['y'] for n in route] + [st.session_state.start_coords[0], st.session_state.end_coords[0]]
         lons = [G.nodes[n]['x'] for n in route] + [st.session_state.start_coords[1], st.session_state.end_coords[1]]
-        pad = 0.0003
-        ax.set_ylim(min(lats)-pad, max(lats)+pad); ax.set_xlim(min(lons)-pad, max(lons)+pad)
+        pad = 0.0003  # 매우 좁은 여백으로 꽉 차게 설정
+        ax.set_ylim(min(lats)-pad, max(lats)+pad)
+        ax.set_xlim(min(lons)-pad, max(lons)+pad)
         
-        if not df.empty: ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, edgecolors='white', zorder=4)
-        ax.scatter(st.session_state.start_coords[1], st.session_state.start_coords[0], c='#10b981', s=200, marker='s', edgecolors='white', zorder=5)
-        ax.scatter(st.session_state.end_coords[1], st.session_state.end_coords[0], c='#3b82f6', s=250, marker='X', edgecolors='white', zorder=5)
+        # 5. 마커 및 장애물 표시
+        if not df.empty: 
+            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, edgecolors='white', zorder=5)
+        ax.scatter(st.session_state.start_coords[1], st.session_state.start_coords[0], 
+                   c='#10b981', s=200, marker='s', edgecolors='white', zorder=6)
+        ax.scatter(st.session_state.end_coords[1], st.session_state.end_coords[0], 
+                   c='#3b82f6', s=250, marker='X', edgecolors='white', zorder=6)
 
         ax.axis('off')
         plt.tight_layout(pad=0)
         st.pyplot(fig)
         
+        # 6. 결과 텍스트 출력
         st.metric("🏁 예상 보행 거리", f"{total_meters} m")
         st.success(f"최적 우회 경로를 탐색했습니다. (도보 약 {round(total_meters/67)}분)")
 
