@@ -26,7 +26,7 @@ sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9_vnph9VqvmqqmA-_
 
 
 
-@st.cache_data(ttl=60) # 데이터 업데이트 확인을 위해 캐시 시간 단축
+@st.cache_data(ttl=10) # 데이터 업데이트 확인을 위해 캐시 시간 단축
 
 def get_obstacle_data(url):
 
@@ -169,6 +169,7 @@ if start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
 
 
 
