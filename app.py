@@ -33,6 +33,8 @@ if 'start_coords' not in st.session_state:
     st.session_state.start_coords = (35.299396, 128.595954)
 if 'end_coords' not in st.session_state:
     st.session_state.end_coords = (35.302278, 128.593880)
+if 'run_nav' not in st.session_state:
+    st.session_state.run_nav = False  # 실행 버튼 클릭 여부 저장
 
 # [2] 사이드바 설정
 st.sidebar.header("📍 경로 설정")
@@ -48,6 +50,7 @@ if input_method == "장소 이름 검색":
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
+                st.session_state.run_nav = False # 위치 변경 시 결과 초기화
                 st.rerun() 
         except: st.sidebar.error("검색 중 오류 발생")
 else:
@@ -58,6 +61,7 @@ else:
     if st.sidebar.button("🚀 좌표 반영"):
         st.session_state.start_coords = (s_lat, s_lon)
         st.session_state.end_coords = (e_lat, e_lon)
+        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
         st.rerun()
 
 # --- 지도 클릭 섹션 ---
@@ -75,24 +79,32 @@ if map_data and map_data.get('last_clicked'):
     st.info(f"선택된 좌표: {clicked_lat:.6f}, {clicked_lng:.6f}")
     c1, c2 = st.columns(2)
     if c1.button("📌 여기를 [출발지]로"):
-        st.session_state.start_coords = (clicked_lat, clicked_lng); st.rerun()
+        st.session_state.start_coords = (clicked_lat, clicked_lng)
+        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+        st.rerun()
     if c2.button("📌 여기를 [목적지]로"):
-        st.session_state.end_coords = (clicked_lat, clicked_lng); st.rerun()
+        st.session_state.end_coords = (clicked_lat, clicked_lng)
+        st.session_state.run_nav = False # 위치 변경 시 결과 초기화
+        st.rerun()
 
 start_coords = st.session_state.start_coords
 end_coords = st.session_state.end_coords
 
-# [3] 경로 탐색 및 시각화
-if start_coords and end_coords:
+# --- 실행 버튼 추가 ---
+st.markdown("---")
+if st.button("🏁 AI 우회 경로 탐색 시작", use_container_width=True, type="primary"):
+    st.session_state.run_nav = True
+
+# [3] 경로 탐색 및 시각화 (버튼을 눌렀을 때만 실행)
+if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
-    # --- [수정] 가장 가까운 도로(Edge) 기반의 교차로(Node) 선택 ---
-    # 단순히 가장 가까운 점을 찾는 대신, 실제 도로를 먼저 찾고 그 도로의 한쪽 끝 교차로를 선택합니다.
+    # --- 가장 가까운 도로(Edge) 기반의 교차로(Node) 선택 ---
     nearest_edge_s = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
     nearest_edge_e = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
     
-    orig_node = nearest_edge_s[0] # 도로의 시작 노드 선택
-    dest_node = nearest_edge_e[0] # 도로의 시작 노드 선택
+    orig_node = nearest_edge_s[0] 
+    dest_node = nearest_edge_e[0] 
 
     # 장애물 우회 로직
     DETECTION_RADIUS = 0.0001  
@@ -111,19 +123,25 @@ if start_coords and end_coords:
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # --- [추가] 총 이동 거리 계산 (실제 미터법) ---
+        # --- 총 이동 거리 계산 ---
         total_meters = 0
         for u, v in zip(route[:-1], route[1:]):
             edge_data = G.get_edge_data(u, v)
             if edge_data:
-                # MultiGraph 대응: 가장 짧은 length 값 선택
                 min_len = min(d.get('length', 0) for d in edge_data.values())
                 total_meters += min_len
         total_meters = int(total_meters)
 
-        # 시각화 (matplotlib)
-        fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=5, 
-                                    node_size=0, bgcolor='white', show=False, close=False)
+        # 시각화 최적화 (배경 지도를 포함하여 꽉 차게 그림)
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # 배경 도로망 그리기
+        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=0.8, 
+                      bgcolor='white', show=False, close=False)
+        
+        # 경로 그리기
+        ox.plot_graph_route(G, route, ax=ax, route_color='#3b82f6', route_linewidth=5, 
+                            node_size=0, show=False, close=False)
 
         # 실제 위치에서 교차로까지 연결선
         start_node_pt = (G.nodes[route[0]]['x'], G.nodes[route[0]]['y'])
@@ -134,18 +152,20 @@ if start_coords and end_coords:
         ax.plot([end_coords[1], end_node_pt[0]], [end_coords[0], end_node_pt[1]], 
                 color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
 
-        # 줌 설정
-        route_nodes = [G.nodes[node] for node in route]
-        lats = [n['y'] for n in route_nodes] + [start_coords[0], end_coords[0]]
-        lons = [n['x'] for n in route_nodes] + [start_coords[1], end_coords[1]]
-        bbox = (max(lats)+0.001, min(lats)-0.001, max(lons)+0.001, min(lons)-0.001)
-        ax.set_ylim(bbox[1], bbox[0]); ax.set_xlim(bbox[3], bbox[2])
+        # 줌 설정 (여백 최소화)
+        lats = [G.nodes[node]['y'] for node in route] + [start_coords[0], end_coords[0]]
+        lons = [G.nodes[node]['x'] for node in route] + [start_coords[1], end_coords[1]]
+        pad = 0.0003
+        ax.set_ylim(min(lats)-pad, max(lats)+pad)
+        ax.set_xlim(min(lons)-pad, max(lons)+pad)
 
         if not df.empty:
             ax.scatter(df['경도'], df['위도'], c='#ef4444', s=60, zorder=5, edgecolors='white')
         ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=6, edgecolors='white')
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
         
+        ax.axis('off')
+        plt.tight_layout(pad=0)
         st.pyplot(fig)
         
         # --- 결과 표시 ---
