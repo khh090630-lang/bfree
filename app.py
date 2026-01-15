@@ -134,7 +134,7 @@ if st.session_state.run_nav and start_coords and end_coords:
         fig, ax = plt.subplots(figsize=(10, 10))
         
         # 배경 도로망 그리기
-        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=0.8, 
+        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=1.0, 
                       bgcolor='white', show=False, close=False)
         
         # 경로 그리기
@@ -172,3 +172,4 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
