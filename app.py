@@ -99,12 +99,10 @@ if st.button("🏁 AI 우회 경로 탐색 시작", use_container_width=True, ty
 if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
-    # --- 가장 가까운 도로(Edge) 기반의 교차로(Node) 선택 ---
-    nearest_edge_s = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
-    nearest_edge_e = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
-    
-    orig_node = nearest_edge_s[0] 
-    dest_node = nearest_edge_e[0] 
+    # --- [수정 핵심] 유턴 방지: 가장 물리적으로 가까운 교차로(Node) 직접 선택 ---
+    # nearest_edges 방식 대신 nearest_nodes를 사용하여 불필요한 우회를 차단합니다.
+    orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
+    dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
 
     # 장애물 우회 로직
     DETECTION_RADIUS = 0.0001  
