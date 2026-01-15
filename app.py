@@ -158,7 +158,7 @@ if st.session_state.run_nav and start_coords and end_coords:
         ax.set_xlim(min(lons)-pad, max(lons)+pad)
 
         if not df.empty:
-            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=60, zorder=5, edgecolors='white')
+            ax.scatter(df['경도'], df['위도'], c='#64748b', s=60, zorder=5, edgecolors='white')
         ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=6, edgecolors='white')
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
         
@@ -172,4 +172,5 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
 
