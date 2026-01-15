@@ -99,8 +99,7 @@ if st.button("🏁 AI 우회 경로 탐색 시작", use_container_width=True, ty
 if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
-    # --- [수정 핵심] 유턴 방지: 가장 물리적으로 가까운 교차로(Node) 직접 선택 ---
-    # nearest_edges 방식 대신 nearest_nodes를 사용하여 불필요한 우회를 차단합니다.
+    # --- 유턴 방지: 가장 물리적으로 가까운 교차로(Node) 직접 선택 ---
     orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
     dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
 
@@ -130,34 +129,48 @@ if st.session_state.run_nav and start_coords and end_coords:
                 total_meters += min_len
         total_meters = int(total_meters)
 
-        # --- 시각화 최적화 (배경 도로 진하게 수정) ---
+        # --- 시각화 최적화 (배경 진하게 & 장애물 빨간색 복구) ---
         fig, ax = plt.subplots(figsize=(10, 10))
         
-        # 배경 도로망 그리기 (색상을 더 어둡게, 선을 더 굵게 변경)
+        # 1. 배경 도로망 (진한 회색)
         ox.plot_graph(G, ax=ax, 
                       node_size=0, 
-                      edge_color='#94a3b8', # 더 진한 회색 (기존 #e2e8f0에서 변경)
-                      edge_linewidth=1.2,   # 선 굵기 (기존 0.8에서 변경)
+                      edge_color='#94a3b8', 
+                      edge_linewidth=1.2, 
                       bgcolor='white', 
                       show=False, 
                       close=False)
         
-        # 경로 그리기 (경로가 배경에 묻히지 않도록 선명한 파란색 유지)
+        # 2. 탐색 경로 (진한 파란색)
         ox.plot_graph_route(G, route, ax=ax, 
-                            route_color='#1d4ed8', # 더 깊은 파란색
+                            route_color='#1d4ed8', 
                             route_linewidth=6, 
                             node_size=0, 
                             show=False, 
                             close=False)
-        # 실제 위치에서 교차로까지 연결선
+
+        # 3. 실제 위치에서 교차로까지 연결선
         start_node_pt = (G.nodes[route[0]]['x'], G.nodes[route[0]]['y'])
         ax.plot([start_coords[1], start_node_pt[0]], [start_coords[0], start_node_pt[1]], 
-                color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
+                color='#1d4ed8', linewidth=6, alpha=0.7, zorder=4)
 
         end_node_pt = (G.nodes[route[-1]]['x'], G.nodes[route[-1]]['y'])
         ax.plot([end_coords[1], end_node_pt[0]], [end_coords[0], end_node_pt[1]], 
-                color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
+                color='#1d4ed8', linewidth=6, alpha=0.7, zorder=4)
 
+        # 4. 장애물 표시 (빨간색으로 복구 및 zorder 상향)
+        if not df.empty:
+            ax.scatter(df['경도'], df['위도'], 
+                       c='#ef4444',       # 선명한 빨간색
+                       s=80,              # 크기 조정
+                       zorder=10,         # 도로와 경로보다 위로 설정
+                       edgecolors='white', 
+                       linewidth=1)
+
+        # 5. 출발/도착 마커
+        ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=11, edgecolors='white')
+        ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=11, edgecolors='white')
+        
         # 줌 설정 (여백 최소화)
         lats = [G.nodes[node]['y'] for node in route] + [start_coords[0], end_coords[0]]
         lons = [G.nodes[node]['x'] for node in route] + [start_coords[1], end_coords[1]]
@@ -165,11 +178,6 @@ if st.session_state.run_nav and start_coords and end_coords:
         ax.set_ylim(min(lats)-pad, max(lats)+pad)
         ax.set_xlim(min(lons)-pad, max(lons)+pad)
 
-        if not df.empty:
-            ax.scatter(df['경도'], df['위도'], c='#64748b', s=60, zorder=5, edgecolors='white')
-        ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=6, edgecolors='white')
-        ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
-        
         ax.axis('off')
         plt.tight_layout(pad=0)
         st.pyplot(fig)
@@ -180,6 +188,3 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
-
-
-
