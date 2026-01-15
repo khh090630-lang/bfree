@@ -22,7 +22,6 @@ def get_obstacle_data(url):
 @st.cache_resource
 def get_graph_data():
     center_point = (35.300, 128.595)
-    # dist=2000으로 범위를 충분히 잡아 주변 도로가 잘 보이게 합니다.
     return ox.graph_from_point(center_point, dist=2000, network_type='walk')
 
 df = get_obstacle_data(sheet_url)
@@ -34,8 +33,6 @@ if 'start_coords' not in st.session_state:
     st.session_state.start_coords = (35.299396, 128.595954)
 if 'end_coords' not in st.session_state:
     st.session_state.end_coords = (35.302278, 128.593880)
-if 'run_nav' not in st.session_state:
-    st.session_state.run_nav = False 
 
 # [2] 사이드바 설정
 st.sidebar.header("📍 경로 설정")
@@ -44,14 +41,13 @@ input_method = st.sidebar.radio("방식 선택", ["장소 이름 검색", "위�
 if input_method == "장소 이름 검색":
     start_input = st.sidebar.text_input("출발지", value="감계중학교")
     end_input = st.sidebar.text_input("목적지", value="북면사무소")
-    if st.sidebar.button("🔍 장소 검색"):
+    if st.sidebar.button("🚀 장소 검색"):
         try:
             s_loc = geolocator.geocode(f"{start_input.strip()}, 창원시")
             e_loc = geolocator.geocode(f"{end_input.strip()}, 창원시")
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
-                st.session_state.run_nav = False
                 st.rerun() 
         except: st.sidebar.error("검색 중 오류 발생")
 else:
@@ -59,14 +55,14 @@ else:
     s_lon = st.sidebar.number_input("출발 경도", value=st.session_state.start_coords[1], format="%.6f")
     e_lat = st.sidebar.number_input("목적 위도", value=st.session_state.end_coords[0], format="%.6f")
     e_lon = st.sidebar.number_input("목적 경도", value=st.session_state.end_coords[1], format="%.6f")
-    if st.sidebar.button("📍 좌표 반영"):
+    if st.sidebar.button("🚀 좌표 반영"):
         st.session_state.start_coords = (s_lat, s_lon)
         st.session_state.end_coords = (e_lat, e_lon)
-        st.session_state.run_nav = False
         st.rerun()
 
-# --- 1단계: 지도 클릭 위치 설정 ---
-st.markdown("### 1️⃣ 지도를 클릭하여 위치를 설정하세요")
+# --- 지도 클릭 섹션 ---
+st.markdown("### 🖱️ 지도를 클릭하여 위치를 미세 조정하세요")
+
 m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
 folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
 folium.Marker(st.session_state.end_coords, tooltip="목적지", icon=folium.Icon(color='blue')).add_to(m)
@@ -79,101 +75,82 @@ if map_data and map_data.get('last_clicked'):
     st.info(f"선택된 좌표: {clicked_lat:.6f}, {clicked_lng:.6f}")
     c1, c2 = st.columns(2)
     if c1.button("📌 여기를 [출발지]로"):
-        st.session_state.start_coords = (clicked_lat, clicked_lng)
-        st.session_state.run_nav = False
-        st.rerun()
+        st.session_state.start_coords = (clicked_lat, clicked_lng); st.rerun()
     if c2.button("📌 여기를 [목적지]로"):
-        st.session_state.end_coords = (clicked_lat, clicked_lng)
-        st.session_state.run_nav = False
-        st.rerun()
+        st.session_state.end_coords = (clicked_lat, clicked_lng); st.rerun()
 
-# --- 2단계: 실행 버튼 ---
-st.markdown("---")
-st.markdown("### 2️⃣ 경로 탐색을 시작합니다")
-if st.button("🚀 AI 우회 경로 찾기", use_container_width=True, type="primary"):
-    st.session_state.run_nav = True
+start_coords = st.session_state.start_coords
+end_coords = st.session_state.end_coords
 
 # [3] 경로 탐색 및 시각화
-if st.session_state.run_nav:
+if start_coords and end_coords:
     G = graph.copy()
     
-    # 교차로 탐색 보정 (가까운 노드 찾기 함수)
-    def get_truest_node(graph, coords):
-        edge = ox.distance.nearest_edges(graph, coords[1], coords[0])
-        u, v, _ = edge
-        dist_u = (coords[0]-graph.nodes[u]['y'])**2 + (coords[1]-graph.nodes[u]['x'])**2
-        dist_v = (coords[0]-graph.nodes[v]['y'])**2 + (coords[1]-graph.nodes[v]['x'])**2
-        return u if dist_u < dist_v else v
+    # --- [수정] 가장 가까운 도로(Edge) 기반의 교차로(Node) 선택 ---
+    # 단순히 가장 가까운 점을 찾는 대신, 실제 도로를 먼저 찾고 그 도로의 한쪽 끝 교차로를 선택합니다.
+    nearest_edge_s = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
+    nearest_edge_e = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
+    
+    orig_node = nearest_edge_s[0] # 도로의 시작 노드 선택
+    dest_node = nearest_edge_e[0] # 도로의 시작 노드 선택
 
-    orig_node = get_truest_node(G, st.session_state.start_coords)
-    dest_node = get_truest_node(G, st.session_state.end_coords)
-
-    # 장애물 가중치 적용 로직
-    DETECTION_RADIUS = 0.0001
-    PENALTY = 50
+    # 장애물 우회 로직
+    DETECTION_RADIUS = 0.0001  
+    PENALTY = 50              
     for u, v, k, data in G.edges(keys=True, data=True):
         data['my_weight'] = data['length']
         if 'geometry' in data: edge_geom = data['geometry']
         else: edge_geom = LineString([(G.nodes[u]['x'], G.nodes[u]['y']), (G.nodes[v]['x'], G.nodes[v]['y'])])
         if not df.empty:
             for _, row in df.iterrows():
-                if edge_geom.distance(Point(row['경도'], row['위도'])) < DETECTION_RADIUS:
-                    data['my_weight'] *= PENALTY
+                obs_point = Point(row['경도'], row['위도'])
+                if edge_geom.distance(obs_point) < DETECTION_RADIUS:
+                    data['my_weight'] = data['length'] * PENALTY
                     break
 
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 거리 합산 계산
+        # --- [추가] 총 이동 거리 계산 (실제 미터법) ---
         total_meters = 0
         for u, v in zip(route[:-1], route[1:]):
             edge_data = G.get_edge_data(u, v)
             if edge_data:
+                # MultiGraph 대응: 가장 짧은 length 값 선택
                 min_len = min(d.get('length', 0) for d in edge_data.values())
                 total_meters += min_len
         total_meters = int(total_meters)
 
-        # --- [수정 핵심] 시각화: 배경 도로망 복구 및 줌 최적화 ---
-        fig, ax = plt.subplots(figsize=(12, 10))
+        # 시각화 (matplotlib)
+        fig, ax = ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=5, 
+                                    node_size=0, bgcolor='white', show=False, close=False)
 
-        # 1. 배경 도로망 먼저 그리기 (연한 회색)
-        ox.plot_graph(G, ax=ax, node_size=0, edge_color='#e2e8f0', edge_linewidth=0.8, 
-                      bgcolor='white', show=False, close=False)
+        # 실제 위치에서 교차로까지 연결선
+        start_node_pt = (G.nodes[route[0]]['x'], G.nodes[route[0]]['y'])
+        ax.plot([start_coords[1], start_node_pt[0]], [start_coords[0], start_node_pt[1]], 
+                color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
 
-        # 2. 탐색된 경로 덮어 그리기 (굵은 파란색)
-        ox.plot_graph_route(G, route, ax=ax, route_color='#3b82f6', route_linewidth=6, 
-                            node_size=0, show=False, close=False)
+        end_node_pt = (G.nodes[route[-1]]['x'], G.nodes[route[-1]]['y'])
+        ax.plot([end_coords[1], end_node_pt[0]], [end_coords[0], end_node_pt[1]], 
+                color='#3b82f6', linewidth=5, alpha=0.7, zorder=4)
+
+        # 줌 설정
+        route_nodes = [G.nodes[node] for node in route]
+        lats = [n['y'] for n in route_nodes] + [start_coords[0], end_coords[0]]
+        lons = [n['x'] for n in route_nodes] + [start_coords[1], end_coords[1]]
+        bbox = (max(lats)+0.001, min(lats)-0.001, max(lons)+0.001, min(lons)-0.001)
+        ax.set_ylim(bbox[1], bbox[0]); ax.set_xlim(bbox[3], bbox[2])
+
+        if not df.empty:
+            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=60, zorder=5, edgecolors='white')
+        ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=6, edgecolors='white')
+        ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=6, edgecolors='white')
         
-        # 3. 실제 좌표와 도로망 노드 연결선 그리기
-        ax.plot([st.session_state.start_coords[1], G.nodes[route[0]]['x']], 
-                [st.session_state.start_coords[0], G.nodes[route[0]]['y']], 
-                color='#3b82f6', linewidth=6, alpha=0.7, zorder=4)
-        ax.plot([st.session_state.end_coords[1], G.nodes[route[-1]]['x']], 
-                [st.session_state.end_coords[0], G.nodes[route[-1]]['y']], 
-                color='#3b82f6', linewidth=6, alpha=0.7, zorder=4)
-
-        # 4. 줌 설정 (경로가 꽉 차게 보이도록 Padding 조정)
-        lats = [G.nodes[n]['y'] for n in route] + [st.session_state.start_coords[0], st.session_state.end_coords[0]]
-        lons = [G.nodes[n]['x'] for n in route] + [st.session_state.start_coords[1], st.session_state.end_coords[1]]
-        pad = 0.0003  # 매우 좁은 여백으로 꽉 차게 설정
-        ax.set_ylim(min(lats)-pad, max(lats)+pad)
-        ax.set_xlim(min(lons)-pad, max(lons)+pad)
-        
-        # 5. 마커 및 장애물 표시
-        if not df.empty: 
-            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, edgecolors='white', zorder=5)
-        ax.scatter(st.session_state.start_coords[1], st.session_state.start_coords[0], 
-                   c='#10b981', s=200, marker='s', edgecolors='white', zorder=6)
-        ax.scatter(st.session_state.end_coords[1], st.session_state.end_coords[0], 
-                   c='#3b82f6', s=250, marker='X', edgecolors='white', zorder=6)
-
-        ax.axis('off')
-        plt.tight_layout(pad=0)
         st.pyplot(fig)
         
-        # 6. 결과 텍스트 출력
-        st.metric("🏁 예상 보행 거리", f"{total_meters} m")
-        st.success(f"최적 우회 경로를 탐색했습니다. (도보 약 {round(total_meters/67)}분)")
-
+        # --- 결과 표시 ---
+        st.metric(label="🏁 예상 총 보행 거리", value=f"{total_meters} m")
+        st.success(f"최적 경로를 찾았습니다. (도보 약 {round(total_meters/67)}분 소요)")
+        
     except Exception as e:
-        st.error(f"경로 탐색 실패: {e}")
+        st.error(f"경로를 찾을 수 없습니다: {e}")
