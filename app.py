@@ -11,7 +11,7 @@ import folium
 st.set_page_config(page_title="감계 배리어프리 내비", layout="wide")
 st.title("🗺️ 감계지구 스마트 우회 내비게이션")
 
-# [1] 데이터 로드 (캐시 사용)
+# [1] 데이터 로드
 sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9_vnph9VqvmqqmA-_njbzjKR9dKTIOhFESErGsSSGaiQ9617tOmurA4Y8C9c-wu1t2LKQXtSPtEVk/pub?output=csv"
 
 @st.cache_data(ttl=10)
@@ -28,13 +28,13 @@ df = get_obstacle_data(sheet_url)
 graph = get_graph_data()
 geolocator = Nominatim(user_agent="my_bfree_nav_v6")
 
-# --- 세션 상태 초기화 (run_nav 변수 추가) ---
+# --- 세션 상태 초기화 ---
 if 'start_coords' not in st.session_state:
     st.session_state.start_coords = (35.299396, 128.595954)
 if 'end_coords' not in st.session_state:
     st.session_state.end_coords = (35.302278, 128.593880)
 if 'run_nav' not in st.session_state:
-    st.session_state.run_nav = False  # 경로 실행 여부 플래그
+    st.session_state.run_nav = False 
 
 # [2] 사이드바 설정
 st.sidebar.header("📍 경로 설정")
@@ -50,7 +50,7 @@ if input_method == "장소 이름 검색":
             if s_loc and e_loc:
                 st.session_state.start_coords = (s_loc.latitude, s_loc.longitude)
                 st.session_state.end_coords = (e_loc.latitude, e_loc.longitude)
-                st.session_state.run_nav = False # 위치가 바뀌면 버튼을 다시 누르게 함
+                st.session_state.run_nav = False
                 st.rerun() 
         except: st.sidebar.error("검색 중 오류 발생")
 else:
@@ -64,7 +64,7 @@ else:
         st.session_state.run_nav = False
         st.rerun()
 
-# --- 지도 클릭 섹션 ---
+# --- 1단계: 지도 클릭 위치 설정 ---
 st.markdown("### 1️⃣ 지도를 클릭하여 위치를 설정하세요")
 m = folium.Map(location=[st.session_state.start_coords[0], st.session_state.start_coords[1]], zoom_start=15)
 folium.Marker(st.session_state.start_coords, tooltip="출발지", icon=folium.Icon(color='green')).add_to(m)
@@ -86,17 +86,17 @@ if map_data and map_data.get('last_clicked'):
         st.session_state.run_nav = False
         st.rerun()
 
-# --- 실행 버튼 섹션 ---
+# --- 2단계: 실행 버튼 ---
 st.markdown("---")
-st.markdown("### 2️⃣ 경로를 탐색합니다")
+st.markdown("### 2️⃣ 경로 탐색을 시작합니다")
 if st.button("🚀 AI 우회 경로 찾기", use_container_width=True, type="primary"):
     st.session_state.run_nav = True
 
-# [3] 경로 탐색 및 시각화 (버튼이 눌렸을 때만 실행)
+# [3] 경로 탐색 및 시각화
 if st.session_state.run_nav:
     G = graph.copy()
     
-    # 교차로 탐색 보정 (유턴 방지 로직)
+    # 교차로 탐색 보정 (유턴 방지)
     def get_truest_node(graph, coords):
         edge = ox.distance.nearest_edges(graph, coords[1], coords[0])
         u, v, _ = edge
@@ -123,10 +123,17 @@ if st.session_state.run_nav:
     try:
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 거리 계산
-        total_meters = int(sum(ox.utils_graph.get_route_edge_attributes(G, route, 'length')))
-        
-        # 꽉 차는 시각화
+        # --- [에러 해결 부분] 직접 루프를 돌아 거리 합산 ---
+        total_meters = 0
+        for u, v in zip(route[:-1], route[1:]):
+            edge_data = G.get_edge_data(u, v)
+            if edge_data:
+                # MultiGraph 대응: 가장 짧은 length 선택
+                min_len = min(d.get('length', 0) for d in edge_data.values())
+                total_meters += min_len
+        total_meters = int(total_meters)
+        # ----------------------------------------------
+
         fig, ax = plt.subplots(figsize=(10, 8))
         ox.plot_graph_route(G, route, route_color='#3b82f6', route_linewidth=6, node_size=0, bgcolor='white', show=False, close=False, ax=ax)
         
@@ -134,16 +141,15 @@ if st.session_state.run_nav:
         ax.plot([st.session_state.start_coords[1], G.nodes[route[0]]['x']], [st.session_state.start_coords[0], G.nodes[route[0]]['y']], color='#3b82f6', linewidth=6, alpha=0.7)
         ax.plot([st.session_state.end_coords[1], G.nodes[route[-1]]['x']], [st.session_state.end_coords[0], G.nodes[route[-1]]['y']], color='#3b82f6', linewidth=6, alpha=0.7)
 
-        # 줌 최적화 (Padding 최소화)
+        # 줌 최적화
         lats = [G.nodes[n]['y'] for n in route] + [st.session_state.start_coords[0], st.session_state.end_coords[0]]
         lons = [G.nodes[n]['x'] for n in route] + [st.session_state.start_coords[1], st.session_state.end_coords[1]]
         pad = 0.0003
         ax.set_ylim(min(lats)-pad, max(lats)+pad); ax.set_xlim(min(lons)-pad, max(lons)+pad)
         
-        # 마커
+        if not df.empty: ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, edgecolors='white', zorder=4)
         ax.scatter(st.session_state.start_coords[1], st.session_state.start_coords[0], c='#10b981', s=200, marker='s', edgecolors='white', zorder=5)
         ax.scatter(st.session_state.end_coords[1], st.session_state.end_coords[0], c='#3b82f6', s=250, marker='X', edgecolors='white', zorder=5)
-        if not df.empty: ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, edgecolors='white', zorder=4)
 
         ax.axis('off')
         plt.tight_layout(pad=0)
