@@ -127,22 +127,23 @@ if st.session_state.run_nav and start_coords and end_coords:
         # 4. 노드 간 경로 탐색
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 5. 거리 계산
-        total_meters = sum(ox.utils_graph.get_route_edge_attributes(G, route, 'length'))
+        # 5. 거리 계산 (최신 버전에 맞춰 수정)
+        # utils_graph 대신 networkx를 사용하여 경로 내의 실제 length 속성 합산
+        route_edges = zip(route[:-1], route[1:])
+        total_meters = sum(G.get_edge_data(u, v)[0]['length'] for u, v in route_edges)
+        
+        # 실제 좌표에서 노드까지의 직선 거리 합산
         total_meters = int(total_meters + get_dist(orig_node, start_coords) + get_dist(dest_node, end_coords))
 
-        # 6. 시각화 (끊김 문제 해결)
+        # 6. 시각화
         fig, ax = plt.subplots(figsize=(10, 10))
         ox.plot_graph(G, ax=ax, node_size=0, edge_color='#94a3b8', edge_linewidth=1.2, bgcolor='white', show=False, close=False)
         
         # 실제 도로 네트워크 상의 경로 그리기
         ox.plot_graph_route(G, route, ax=ax, route_color='#1d4ed8', route_linewidth=6, node_size=0, show=False, close=False)
 
-        # [수정 핵심] 실제 출발지/목적지 좌표와 경로 노드를 잇는 '연결선' 추가
-        # ax.plot을 사용하여 점과 점 사이를 선으로 이어 끊김 없이 연결합니다.
-        # 출발지 -> 첫 번째 노드 연결
+        # 실제 출발지/목적지 좌표와 경로 노드를 잇는 '연결선' 추가
         ax.plot([start_coords[1], G.nodes[orig_node]['x']], [start_coords[0], G.nodes[orig_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
-        # 목적지 -> 마지막 노드 연결
         ax.plot([end_coords[1], G.nodes[dest_node]['x']], [end_coords[0], G.nodes[dest_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
 
         if not df.empty:
