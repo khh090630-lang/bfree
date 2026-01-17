@@ -98,22 +98,19 @@ if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
     try:
-        # 1. 가장 가까운 '도로(Edge)'를 찾음
+        # 1. 가장 가까운 도로(Edge) 찾기
         start_edge = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
         end_edge = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
 
-        # 2. 거리 계산 함수 (버전 호환용)
         def get_dist(n_id, target_coords):
             node_data = G.nodes[n_id]
             return ox.distance.great_circle(node_data['y'], node_data['x'], target_coords[0], target_coords[1])
 
-        # 3. [핵심 수정] 진행 방향에 있는 노드 선택 로직
-        # 출발지: 해당 도로의 양 끝점 중 '목적지'와 더 가까운 노드를 타겟으로 잡아야 전진함
+        # 2. 진행 방향에 맞는 노드 선택 (역행 방지)
         orig_node = start_edge[0] if get_dist(start_edge[0], end_coords) < get_dist(start_edge[1], end_coords) else start_edge[1]
-        # 목적지: 해당 도로의 양 끝점 중 '출발지'와 더 가까운 노드를 마지막 교차로로 잡음
         dest_node = end_edge[0] if get_dist(end_edge[0], start_coords) < get_dist(end_edge[1], start_coords) else end_edge[1]
 
-        # 장애물 우회 가중치
+        # 3. 가중치 설정
         DETECTION_RADIUS = 0.0001  
         PENALTY = 50               
         for u, v, k, data in G.edges(keys=True, data=True):
@@ -127,25 +124,27 @@ if st.session_state.run_nav and start_coords and end_coords:
                         data['my_weight'] = data['length'] * PENALTY
                         break
 
+        # 4. 노드 간 경로 탐색
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 거리 계산
-        total_meters = 0
-        for u, v in zip(route[:-1], route[1:]):
-            edge_data = G.get_edge_data(u, v)
-            if edge_data:
-                min_len = min(d.get('length', 0) for d in edge_data.values())
-                total_meters += min_len
-        
-        # 실제 좌표에서 노드까지의 접근 거리만 합산 (보조선은 그리지 않음)
+        # 5. 거리 계산
+        total_meters = sum(ox.utils_graph.get_route_edge_attributes(G, route, 'length'))
         total_meters = int(total_meters + get_dist(orig_node, start_coords) + get_dist(dest_node, end_coords))
 
-        # 시각화
+        # 6. 시각화 (끊김 문제 해결)
         fig, ax = plt.subplots(figsize=(10, 10))
         ox.plot_graph(G, ax=ax, node_size=0, edge_color='#94a3b8', edge_linewidth=1.2, bgcolor='white', show=False, close=False)
+        
+        # 실제 도로 네트워크 상의 경로 그리기
         ox.plot_graph_route(G, route, ax=ax, route_color='#1d4ed8', route_linewidth=6, node_size=0, show=False, close=False)
 
-        # 장애물, 출발, 도착 표시
+        # [수정 핵심] 실제 출발지/목적지 좌표와 경로 노드를 잇는 '연결선' 추가
+        # ax.plot을 사용하여 점과 점 사이를 선으로 이어 끊김 없이 연결합니다.
+        # 출발지 -> 첫 번째 노드 연결
+        ax.plot([start_coords[1], G.nodes[orig_node]['x']], [start_coords[0], G.nodes[orig_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
+        # 목적지 -> 마지막 노드 연결
+        ax.plot([end_coords[1], G.nodes[dest_node]['x']], [end_coords[0], G.nodes[dest_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
+
         if not df.empty:
             ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white')
 
