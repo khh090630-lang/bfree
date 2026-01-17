@@ -22,6 +22,7 @@ def get_obstacle_data(url):
 @st.cache_resource
 def get_graph_data():
     center_point = (35.300, 128.595)
+    # 주변 2km 범위의 보행 네트워크 로드
     return ox.graph_from_point(center_point, dist=2000, network_type='walk')
 
 df = get_obstacle_data(sheet_url)
@@ -110,16 +111,19 @@ if st.session_state.run_nav and start_coords and end_coords:
         orig_node = start_edge[0] if get_dist(start_edge[0], end_coords) < get_dist(start_edge[1], end_coords) else start_edge[1]
         dest_node = end_edge[0] if get_dist(end_edge[0], start_coords) < get_dist(end_edge[1], start_coords) else end_edge[1]
 
-        # 3. 가중치 설정
-        DETECTION_RADIUS = 0.0001  
-        PENALTY = 100000               
+        # 3. [회피 로직 강화] 가중치 및 인식 반경 설정
+        DETECTION_RADIUS = 0.00025  # 약 25m 내 장애물 감지
+        PENALTY = 1000               # 장애물 도로 가중치 대폭 상향
+        
         for u, v, k, data in G.edges(keys=True, data=True):
             data['my_weight'] = data['length']
             if 'geometry' in data: edge_geom = data['geometry']
             else: edge_geom = LineString([(G.nodes[u]['x'], G.nodes[u]['y']), (G.nodes[v]['x'], G.nodes[v]['y'])])
+            
             if not df.empty:
                 for _, row in df.iterrows():
                     obs_point = Point(row['경도'], row['위도'])
+                    # 도로와 장애물 점 사이의 최단 거리가 반경 이내인 경우 페널티 부여
                     if edge_geom.distance(obs_point) < DETECTION_RADIUS:
                         data['my_weight'] = data['length'] * PENALTY
                         break
@@ -127,10 +131,14 @@ if st.session_state.run_nav and start_coords and end_coords:
         # 4. 노드 간 경로 탐색
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 5. 거리 계산 (최신 버전에 맞춰 수정)
-        # utils_graph 대신 networkx를 사용하여 경로 내의 실제 length 속성 합산
+        # 5. 거리 계산
         route_edges = zip(route[:-1], route[1:])
-        total_meters = sum(G.get_edge_data(u, v)[0]['length'] for u, v in route_edges)
+        total_meters = 0
+        for u, v in route_edges:
+            edge_data = G.get_edge_data(u, v)
+            if edge_data:
+                # 멀티그래프 대응: 가장 짧은 length 값 선택
+                total_meters += min(d.get('length', 0) for d in edge_data.values())
         
         # 실제 좌표에서 노드까지의 직선 거리 합산
         total_meters = int(total_meters + get_dist(orig_node, start_coords) + get_dist(dest_node, end_coords))
@@ -146,12 +154,15 @@ if st.session_state.run_nav and start_coords and end_coords:
         ax.plot([start_coords[1], G.nodes[orig_node]['x']], [start_coords[0], G.nodes[orig_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
         ax.plot([end_coords[1], G.nodes[dest_node]['x']], [end_coords[0], G.nodes[dest_node]['y']], color='#1d4ed8', linewidth=6, solid_capstyle='round')
 
+        # 장애물 표시
         if not df.empty:
-            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white')
+            ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white', label='Obstacles')
 
+        # 출발/도착 마커
         ax.scatter(start_coords[1], start_coords[0], c='#10b981', s=150, marker='s', zorder=11, edgecolors='white')
         ax.scatter(end_coords[1], end_coords[0], c='#3b82f6', s=150, marker='X', zorder=11, edgecolors='white')
         
+        # 줌 영역 설정
         lats = [G.nodes[node]['y'] for node in route] + [start_coords[0], end_coords[0]]
         lons = [G.nodes[node]['x'] for node in route] + [start_coords[1], end_coords[1]]
         pad = 0.0003
@@ -165,5 +176,3 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
-
-
