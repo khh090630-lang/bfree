@@ -98,10 +98,20 @@ if st.session_state.run_nav and start_coords and end_coords:
     G = graph.copy()
     
     try:
-        # [수정 1] nearest_edges 대신 nearest_nodes 사용 (직접 노드 스냅)
-        # 이렇게 하면 '가장 가까운 선'을 찾아서 노드를 고르는 과정에서 발생하는 역주행이 사라집니다.
-        orig_node = ox.distance.nearest_nodes(G, start_coords[1], start_coords[0])
-        dest_node = ox.distance.nearest_nodes(G, end_coords[1], end_coords[0])
+        # 1. 가장 가까운 '도로(Edge)'를 찾음
+        start_edge = ox.distance.nearest_edges(G, start_coords[1], start_coords[0])
+        end_edge = ox.distance.nearest_edges(G, end_coords[1], end_coords[0])
+
+        # 2. 거리 계산 함수 (버전 호환용)
+        def get_dist(n_id, target_coords):
+            node_data = G.nodes[n_id]
+            return ox.distance.great_circle(node_data['y'], node_data['x'], target_coords[0], target_coords[1])
+
+        # 3. [핵심 수정] 진행 방향에 있는 노드 선택 로직
+        # 출발지: 해당 도로의 양 끝점 중 '목적지'와 더 가까운 노드를 타겟으로 잡아야 전진함
+        orig_node = start_edge[0] if get_dist(start_edge[0], end_coords) < get_dist(start_edge[1], end_coords) else start_edge[1]
+        # 목적지: 해당 도로의 양 끝점 중 '출발지'와 더 가까운 노드를 마지막 교차로로 잡음
+        dest_node = end_edge[0] if get_dist(end_edge[0], start_coords) < get_dist(end_edge[1], start_coords) else end_edge[1]
 
         # 장애물 우회 가중치
         DETECTION_RADIUS = 0.0001  
@@ -119,7 +129,7 @@ if st.session_state.run_nav and start_coords and end_coords:
 
         route = nx.shortest_path(G, orig_node, dest_node, weight='my_weight')
         
-        # 거리 계산 (단순화: 경로상의 거리 합산)
+        # 거리 계산
         total_meters = 0
         for u, v in zip(route[:-1], route[1:]):
             edge_data = G.get_edge_data(u, v)
@@ -127,16 +137,15 @@ if st.session_state.run_nav and start_coords and end_coords:
                 min_len = min(d.get('length', 0) for d in edge_data.values())
                 total_meters += min_len
         
-        # [수정 2] 노드까지의 직선 거리 합산 제거 (보조선을 안 그리므로 거리 계산에서도 제외)
-        total_meters = int(total_meters)
+        # 실제 좌표에서 노드까지의 접근 거리만 합산 (보조선은 그리지 않음)
+        total_meters = int(total_meters + get_dist(orig_node, start_coords) + get_dist(dest_node, end_coords))
 
         # 시각화
         fig, ax = plt.subplots(figsize=(10, 10))
         ox.plot_graph(G, ax=ax, node_size=0, edge_color='#94a3b8', edge_linewidth=1.2, bgcolor='white', show=False, close=False)
         ox.plot_graph_route(G, route, ax=ax, route_color='#1d4ed8', route_linewidth=6, node_size=0, show=False, close=False)
 
-        # [수정 3] 기존에 있던 ax.plot(보조선 그리기) 코드 2줄 삭제함
-
+        # 장애물, 출발, 도착 표시
         if not df.empty:
             ax.scatter(df['경도'], df['위도'], c='#ef4444', s=80, zorder=10, edgecolors='white')
 
