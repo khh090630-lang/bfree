@@ -111,7 +111,7 @@ if st.session_state.run_nav and start_coords and end_coords:
         dest_node = end_edge[0] if get_dist(end_edge[0], start_coords) < get_dist(end_edge[1], start_coords) else end_edge[1]
 
         # 3. 가중치 설정
-        DETECTION_RADIUS = 0.0001  
+        DETECTION_RADIUS = 0.0002  
         PENALTY = 50               
         for u, v, k, data in G.edges(keys=True, data=True):
             data['my_weight'] = data['length']
@@ -165,3 +165,4 @@ if st.session_state.run_nav and start_coords and end_coords:
         
     except Exception as e:
         st.error(f"경로를 찾을 수 없습니다: {e}")
+
